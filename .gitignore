@@ -1,0 +1,12 @@
+photogrammetry-turntable-model_files/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+scans/
+*.ply
+*.stl
+*.obj
+*.mtl
+out/
