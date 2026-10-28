@@ -562,15 +562,13 @@ def generate_lasercut_svg(output_dir: str | Path) -> list[Path]:
     generated: list[Path] = []
 
     ring_tip_r = (GEAR_RING_TEETH * GEAR_MODULE + 2 * GEAR_MODULE) / 2.0
-    ring_root_r = (GEAR_RING_TEETH * GEAR_MODULE - 2 * GEAR_MODULE) / 2.0
-    ring_inner_r = ring_root_r - 2.0
     drive_tip_r = (DRIVE_GEAR_TEETH * GEAR_MODULE + 2 * GEAR_MODULE) / 2.0
-    base_r = BASE_PLATE_DIAMETER_MM / 2.0
     center_distance = (GEAR_RING_TEETH + DRIVE_GEAR_TEETH) * GEAR_MODULE / 2.0
     margin = 5.0
     joint_w = 8.0
     joint_d = MDF_THICKNESS_MM
     n_joints = 5
+    disc_inner_r = PEG_DIAMETER_MM / 2.0 + 1.0
 
     gear_pts = _gear_profile(GEAR_RING_TEETH, GEAR_MODULE, GEAR_PRESSURE_ANGLE_DEG)
 
@@ -579,16 +577,13 @@ def generate_lasercut_svg(output_dir: str | Path) -> list[Path]:
     c = ring_tip_r + margin
     dwg.add(dwg.path(d=_points_to_svg_path(gear_pts, c, c), **CUT_STROKE))
     dwg.add(dwg.circle(center=(c, c), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
-    _add_crank_holes(dwg, c, c)
     dwg.save()
     generated.append(path)
 
     path = output_dir / "disc.svg"
     dwg = _make_svg(path, DISC_RADIUS_MM * 2, margin)
     c = DISC_RADIUS_MM + margin
-    disc_path = _disc_with_slots(
-        DISC_RADIUS_MM, c, c, TAB_COUNT, TAB_WIDTH_MM, TAB_DEPTH_MM)
-    dwg.add(dwg.path(d=disc_path, **CUT_STROKE))
+    dwg.add(dwg.circle(center=(c, c), r=DISC_RADIUS_MM, **CUT_STROKE))
     dwg.add(dwg.circle(center=(c, c), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
     dwg.save()
     generated.append(path)
@@ -660,23 +655,13 @@ def generate_lasercut_svg(output_dir: str | Path) -> list[Path]:
         dwg.save()
         generated.append(path)
 
-    path = output_dir / "bottom_plate.svg"
-    dwg = _make_rect_svg(path, outer_w, outer_d, margin)
-    mx, my = margin, margin
-    bp = _rect_with_tabs(
-        BOX_INNER_W_MM, BOX_INNER_D_MM,
-        mx + outer_w / 2.0, my + outer_d / 2.0,
-        BOX_WALL_TAB_W_MM, BOX_WALL_TAB_D_MM, n_tabs_w, n_tabs_d,
-    )
-    dwg.add(dwg.path(d=bp, **CUT_STROKE))
-    dwg.add(dwg.circle(
-        center=(mx + disc_cx, my + disc_cy),
-        r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE,
-    ))
-    dwg.add(dwg.circle(
-        center=(mx + disc_cx + center_distance, my + disc_cy),
-        r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE,
-    ))
+    bridge_l = DISC_RADIUS_MM * 2.0
+    bridge_w = 30.0
+    path = output_dir / "gear_bridge.svg"
+    dwg = _make_rect_svg(path, bridge_l, bridge_w, margin)
+    dwg.add(dwg.rect(insert=(margin, margin), size=(bridge_l, bridge_w), **CUT_STROKE))
+    dwg.add(dwg.circle(center=(margin + bridge_l / 2.0, margin + bridge_w / 2.0),
+                        r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
     dwg.save()
     generated.append(path)
 
@@ -693,7 +678,7 @@ def generate_lasercut_svg(output_dir: str | Path) -> list[Path]:
 
 
 def generate_sheets_svg(output_dir: str | Path) -> list[Path]:
-    """Nest all laser-cut parts onto 300x300 mm sheets."""
+    """Nest all laser-cut parts onto 300x300 mm sheets (3 sheets)."""
     output_dir = Path(output_dir) / "sheets"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -704,12 +689,16 @@ def generate_sheets_svg(output_dir: str | Path) -> list[Path]:
     outer_w = BOX_INNER_W_MM + 2 * t
     outer_d = BOX_INNER_D_MM + 2 * t
     n_tabs_w, n_tabs_d = 4, 5
-    ring_tip_r_local = (GEAR_RING_TEETH * GEAR_MODULE + 2 * GEAR_MODULE) / 2.0
-    disc_cx = t + ring_tip_r_local + 5.0
+    disc_cx = t + ring_tip_r + 5.0
     disc_cy = t + BOX_DISC_OFFSET_Y_MM
     sw, sh = SHEET_W_MM, SHEET_H_MM
-    pad = 10.0
+    pad = 5.0
     gap = 3.0
+    wall_h = BOX_WALL_H_MM
+    joint_w = 8.0
+    joint_d = MDF_THICKNESS_MM
+    n_joints = 5
+    disc_inner_r = PEG_DIAMETER_MM / 2.0 + 1.0
 
     sheets: list[Path] = []
 
@@ -720,109 +709,77 @@ def generate_sheets_svg(output_dir: str | Path) -> list[Path]:
             size=(f"{sw:.1f}mm", f"{sh:.1f}mm"),
             viewBox=f"0 0 {sw:.1f} {sh:.1f}",
         )
-        d.add(d.rect(insert=(0, 0), size=(sw, sh),
-                      fill="none", stroke="#0000FF",
-                      stroke_width=0.1, stroke_dasharray="4,2"))
         return d, p
 
-    wall_h = BOX_WALL_H_MM
-    outer_pts = _gear_profile(GEAR_RING_TEETH, GEAR_MODULE, GEAR_PRESSURE_ANGLE_DEG)
-
     dwg, sp = _new_sheet(1)
-    bp_ox = (sw - outer_w) / 2.0
-    bp_oy = (sh - outer_d) / 2.0
+    wall_cy_top = pad + wall_h / 2.0
+    wall = _wall_path(outer_w, wall_h, sw / 2.0, wall_cy_top, n_tabs_w,
+                      BOX_WALL_TAB_W_MM, BOX_WALL_TAB_D_MM)
+    dwg.add(dwg.path(d=wall, **CUT_STROKE))
+    plate_top = wall_cy_top + wall_h / 2.0 + BOX_WALL_TAB_D_MM + gap
+    bp_cy = plate_top + outer_d / 2.0
+    spacer_clearance_r = (SPACER_DIAMETER_MM + 2.0) / 2.0
     base_path = _rect_with_tabs(
         BOX_INNER_W_MM, BOX_INNER_D_MM,
-        bp_ox + outer_w / 2.0, bp_oy + outer_d / 2.0,
+        sw / 2.0, bp_cy,
         BOX_WALL_TAB_W_MM, BOX_WALL_TAB_D_MM, n_tabs_w, n_tabs_d,
     )
-    spacer_clearance_r = (SPACER_DIAMETER_MM + 2.0) / 2.0
+    bp_ox = (sw - outer_w) / 2.0
+    bp_oy = bp_cy - outer_d / 2.0
     dwg.add(dwg.path(d=base_path, **CUT_STROKE))
     dwg.add(dwg.circle(
         center=(bp_ox + disc_cx, bp_oy + disc_cy),
-        r=spacer_clearance_r, **CUT_STROKE,
-    ))
+        r=spacer_clearance_r, **CUT_STROKE))
     dwg.add(dwg.circle(
         center=(bp_ox + disc_cx + center_distance, bp_oy + disc_cy),
-        r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE,
-    ))
+        r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
+    plate_bottom = bp_cy + outer_d / 2.0 + BOX_WALL_TAB_D_MM
+    wall_cy_bot = plate_bottom + gap + wall_h / 2.0
+    wall = _wall_path(outer_w, wall_h, sw / 2.0, wall_cy_bot, n_tabs_w,
+                      BOX_WALL_TAB_W_MM, BOX_WALL_TAB_D_MM)
+    dwg.add(dwg.path(d=wall, **CUT_STROKE))
     dwg.save()
     sheets.append(sp)
 
     dwg, sp = _new_sheet(2)
-    dr = DISC_RADIUS_MM
-    disc_c = dr + pad
-    disc_path = _disc_with_slots(dr, disc_c, disc_c, TAB_COUNT, TAB_WIDTH_MM, TAB_DEPTH_MM)
-    dwg.add(dwg.path(d=disc_path, **CUT_STROKE))
-    dwg.add(dwg.circle(center=(disc_c, disc_c), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
-    spare_x = 2 * disc_c + gap
-    dc_x = spare_x + drive_tip_r
-    dc_y = pad + drive_tip_r
+    g = dwg.g(transform=f"rotate(180,{sw / 2.0},{sh / 2.0})")
+    gear_pts = _gear_profile(GEAR_RING_TEETH, GEAR_MODULE, GEAR_PRESSURE_ANGLE_DEG)
+    gc = ring_tip_r
+    g.add(dwg.path(d=_points_to_svg_path(gear_pts, gc, gc), **CUT_STROKE))
+    g.add(dwg.circle(center=(gc, gc), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
+    g.add(dwg.circle(center=(gc, gc), r=DISC_RADIUS_MM, **CUT_STROKE))
+    gear_edge = ring_tip_r * 2
+    col_x = gear_edge + gap
+    col_cx = col_x + drive_tip_r
+    ry = drive_tip_r
     drive_profile = _gear_profile(
         DRIVE_GEAR_TEETH, GEAR_MODULE, GEAR_PRESSURE_ANGLE_DEG)
-    dwg.add(dwg.path(
-        d=_points_to_svg_path(drive_profile, dc_x, dc_y), **CUT_STROKE))
-    dwg.add(dwg.circle(
-        center=(dc_x, dc_y), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
-    wy = dc_y + drive_tip_r + gap
+    g.add(dwg.path(
+        d=_points_to_svg_path(drive_profile, col_cx, ry), **CUT_STROKE))
+    g.add(dwg.circle(
+        center=(col_cx, ry), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
+    ry += drive_tip_r + gap + WASHER_OUTER_R_MM
     for _ in range(2):
-        wc_x = spare_x + WASHER_OUTER_R_MM
-        dwg.add(dwg.circle(
-            center=(wc_x, wy + WASHER_OUTER_R_MM),
-            r=WASHER_OUTER_R_MM, **CUT_STROKE))
-        dwg.add(dwg.circle(
-            center=(wc_x, wy + WASHER_OUTER_R_MM),
-            r=WASHER_HOLE_R_MM, **CUT_STROKE))
-        wy += WASHER_OUTER_R_MM * 2 + gap
+        g.add(dwg.circle(center=(col_cx, ry), r=WASHER_OUTER_R_MM, **CUT_STROKE))
+        g.add(dwg.circle(center=(col_cx, ry), r=WASHER_HOLE_R_MM, **CUT_STROKE))
+        ry += WASHER_OUTER_R_MM * 2 + gap
     spacer_r = SPACER_DIAMETER_MM / 2.0
-    cols = max(1, int((sw - spare_x) / (SPACER_DIAMETER_MM + gap)))
+    ry += spacer_r - WASHER_OUTER_R_MM
     for i in range(SPACER_COUNT):
-        col = i % cols
-        row = i // cols
-        sx = spare_x + spacer_r + col * (SPACER_DIAMETER_MM + gap)
-        sy = wy + spacer_r + row * (SPACER_DIAMETER_MM + gap)
-        dwg.add(dwg.circle(center=(sx, sy), r=spacer_r, **CUT_STROKE))
-        dwg.add(dwg.circle(center=(sx, sy), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
-    dwg.save()
-    sheets.append(sp)
-
-    dwg, sp = _new_sheet(3)
-    rr = ring_tip_r + pad
-    dwg.add(dwg.path(d=_points_to_svg_path(outer_pts, rr, rr), **CUT_STROKE))
-    dwg.add(dwg.circle(center=(rr, rr), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
-    _add_crank_holes(dwg, rr, rr)
-    wy3 = rr + ring_tip_r + gap
-    for length, n_t in [
-        (outer_w, n_tabs_w),
-        (outer_w, n_tabs_w),
-        (BOX_INNER_D_MM, n_tabs_d),
-    ]:
-        cx_w = sw / 2.0
-        cy_w = wy3 + wall_h / 2.0
-        wall = _wall_path(length, wall_h, cx_w, cy_w, n_t,
-                          BOX_WALL_TAB_W_MM, BOX_WALL_TAB_D_MM)
-        dwg.add(dwg.path(d=wall, **CUT_STROKE))
-        wy3 += wall_h + gap
-    dwg.save()
-    sheets.append(sp)
-
-    dwg, sp = _new_sheet(4)
-    bp_ox = (sw - outer_w) / 2.0
-    bp_oy = (sh - outer_d) / 2.0
-    bp = _rect_with_tabs(
-        BOX_INNER_W_MM, BOX_INNER_D_MM,
-        bp_ox + outer_w / 2.0, bp_oy + outer_d / 2.0,
-        BOX_WALL_TAB_W_MM, BOX_WALL_TAB_D_MM, n_tabs_w, n_tabs_d,
-    )
-    dwg.add(dwg.path(d=bp, **CUT_STROKE))
-    dwg.add(dwg.circle(
-        center=(bp_ox + disc_cx, bp_oy + disc_cy),
-        r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE,
-    ))
-    dwg.add(dwg.circle(
-        center=(bp_ox + disc_cx + center_distance, bp_oy + disc_cy),
-        r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE,
-    ))
+        g.add(dwg.circle(center=(col_cx, ry), r=spacer_r, **CUT_STROKE))
+        g.add(dwg.circle(center=(col_cx, ry), r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
+        ry += SPACER_DIAMETER_MM + gap
+    bridge_l = DISC_RADIUS_MM * 2.0
+    bridge_w = 30.0
+    bridge_y = gear_edge + 1.0
+    g.add(dwg.rect(insert=(0, bridge_y), size=(bridge_l, bridge_w), **CUT_STROKE))
+    g.add(dwg.circle(center=(bridge_l / 2.0, bridge_y + bridge_w / 2.0),
+                      r=PEG_DIAMETER_MM / 2.0, **CUT_STROKE))
+    wall_cy = bridge_y + bridge_w + 1.0 + wall_h / 2.0
+    wall = _wall_path(BOX_INNER_D_MM, wall_h, sw / 2.0, wall_cy, n_tabs_d,
+                      BOX_WALL_TAB_W_MM, BOX_WALL_TAB_D_MM)
+    g.add(dwg.path(d=wall, **CUT_STROKE))
+    dwg.add(g)
     dwg.save()
     sheets.append(sp)
 
