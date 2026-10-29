@@ -9,16 +9,20 @@ RUN apt-get update && apt-get install -y \
     libeigen3-dev libflann-dev libfreeimage-dev \
     libgoogle-glog-dev libgflags-dev libsqlite3-dev \
     libceres-dev libcgal-dev \
+    libglvnd-dev libglew-dev libmetis-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ARG COLMAP_VERSION=3.9.1
+ARG CUDA_ARCHS="75;86"
 RUN git clone --branch ${COLMAP_VERSION} --depth 1 https://github.com/colmap/colmap.git /src \
     && cmake -S /src -B /build -GNinja \
        -DCMAKE_BUILD_TYPE=Release \
        -DCMAKE_INSTALL_PREFIX=/install \
        -DCUDA_ENABLED=ON \
+       "-DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHS}" \
        -DTESTS_ENABLED=OFF \
-    && cmake --build /build --target install
+       -DGUI_ENABLED=OFF \
+    && cmake --build /build --target install -- -j2
 
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
@@ -30,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libboost-filesystem1.74.0 libboost-program-options1.74.0 \
     libceres2 libfreeimage3 libflann1.9 libsqlite3-0 libgoogle-glog0v5 \
     python3 python3-pip \
+    libgl1 libglib2.0-0 libgomp1 libegl1 libusb-1.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -37,7 +42,9 @@ COPY pyproject.toml .
 COPY scanner/ scanner/
 COPY service.py .
 
-RUN pip3 install --no-cache-dir . fastapi uvicorn[standard] python-multipart
+RUN pip3 install --no-cache-dir opencv-contrib-python-headless numpy open3d svgwrite && \
+    pip3 install --no-cache-dir --no-deps . && \
+    pip3 install --no-cache-dir fastapi uvicorn[standard] python-multipart
 
 RUN mkdir -p /data/scans
 
