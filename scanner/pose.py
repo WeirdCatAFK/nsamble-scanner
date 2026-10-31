@@ -158,14 +158,11 @@ def export_colmap_poses(
             tvec = np.array(pose["tvec"])
             rmat, _ = cv2.Rodrigues(rvec)
 
-            rmat_inv = rmat.T
-            tvec_inv = -rmat_inv @ tvec
-
-            qw, qx, qy, qz = _rotation_matrix_to_quaternion(rmat_inv)
+            qw, qx, qy, qz = _rotation_matrix_to_quaternion(rmat)
 
             name = Path(pose["path"]).name
             f.write(f"{i+1} {qw} {qx} {qy} {qz} "
-                    f"{tvec_inv[0]} {tvec_inv[1]} {tvec_inv[2]} 1 {name}\n")
+                    f"{tvec[0]} {tvec[1]} {tvec[2]} 1 {name}\n")
             f.write("\n")
 
     (output_dir / "points3D.txt").write_text("# Empty — dense stereo only\n")
