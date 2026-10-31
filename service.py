@@ -11,6 +11,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 
 from scanner.calibration import load_calibration
+from scanner.filenames import safe_upload_filename
 from scanner.pose import process_frames, export_colmap_poses
 from scanner.segment import mask_all_frames
 from scanner.reconstruct import run_colmap_dense, pointcloud_to_mesh
@@ -135,7 +136,11 @@ async def create_scan(
     scan_dir = WORK_DIR / job_id
     scan_dir.mkdir(parents=True, exist_ok=True)
 
-    video_path = scan_dir / video.filename
+    try:
+        filename = safe_upload_filename(video.filename)
+    except ValueError:
+        raise HTTPException(400, "Invalid video filename.")
+    video_path = scan_dir / filename
     with open(video_path, "wb") as f:
         while chunk := await video.read(1024 * 1024):
             f.write(chunk)
@@ -166,7 +171,8 @@ async def create_scan(
 
 @app.get("/scans")
 def list_scans():
-    ordered = sorted(jobs.values(), key=lambda j: j["created_at"])
+    with lock:
+        ordered = sorted(jobs.values(), key=lambda j: j["created_at"])
     return [
         {
             "id": j["id"],
@@ -180,9 +186,10 @@ def list_scans():
 
 @app.get("/scans/{job_id}")
 def get_scan(job_id: str):
-    if job_id not in jobs:
+    with lock:
+        job = jobs.get(job_id)
+    if job is None:
         raise HTTPException(404, "Scan not found.")
-    job = jobs[job_id]
     return {
         "id": job["id"],
         "status": job["status"],
@@ -195,9 +202,10 @@ def get_scan(job_id: str):
 
 @app.get("/scans/{job_id}/model")
 def get_model(job_id: str):
-    if job_id not in jobs:
+    with lock:
+        job = jobs.get(job_id)
+    if job is None:
         raise HTTPException(404, "Scan not found.")
-    job = jobs[job_id]
     if job["status"] != "done" or not job["result_path"]:
         raise HTTPException(400, f"Scan not ready. Status: {job['status']}")
     return FileResponse(
